@@ -643,6 +643,7 @@ static int exfat_extend_valid_size(struct file *file, loff_t new_valid_size)
 #else
 		struct page *page = NULL;
 #endif
+		unsigned long off;
 
 		len = PAGE_SIZE - (pos & (PAGE_SIZE - 1));
 		if (pos + len > new_valid_size)
@@ -661,6 +662,18 @@ static int exfat_extend_valid_size(struct file *file, loff_t new_valid_size)
 			goto out;
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
+		off = offset_in_folio(folio, pos);
+		folio_zero_new_buffers(folio, off, off + len);
+#else
+		off = offset_in_page(pos);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 5, 0)
+		folio_zero_new_buffers(page_folio(page), off, off + len);
+#else
+		page_zero_new_buffers(page, off, off + len);
+#endif
+#endif
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
 		err = ops->write_end(file, mapping, pos, len, len, folio, NULL);
 #else
 		err = ops->write_end(file, mapping, pos, len, len, page, NULL);
@@ -672,6 +685,8 @@ static int exfat_extend_valid_size(struct file *file, loff_t new_valid_size)
 		balance_dirty_pages_ratelimited(mapping);
 		cond_resched();
 	}
+
+	return 0;
 
 out:
 	return err;
